@@ -1,0 +1,7 @@
+CREATE|users|id,name,score
+INSERT|users|1,alice,90
+INSERT|users|2,bob,80
+INSERT|users|3,carol,95
+SELECT|users
+COUNT|users
+SCHEMA

@@ -1,0 +1,7 @@
+CREATE users cols=id,name,score
+INSERT users values=1,alice,90
+INSERT users values=2,bob,80
+INSERT users values=3,carol,95
+SELECT users
+COUNT users n=3
+SCHEMA

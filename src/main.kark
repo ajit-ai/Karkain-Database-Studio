@@ -1,0 +1,133 @@
+// Karkain Database Studio - first functional slice.
+// A small delimited-table engine over files. Tables are stored as
+// pipe-delimited records in data/state.dat:
+//   name|col1,col2,...|EMPTY|rows...
+// Rows are comma-delimited and separated by ';'. "EMPTY" marks a table with
+// no rows so every record keeps a non-empty third field. The command stream
+// is read from data/commands.dat; a report is written to data/report.dat.
+// Builtins only; relative paths only.
+
+func find_table(state, name) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == name) { return state[i] }
+        i = i + 1
+    }
+    return ""
+}
+
+func put_table(state, name, cols, rows) {
+    let rec = name + "|" + cols + "|" + rows
+    let out = []
+    let j = 0
+    let replaced = 0
+    while (j < len(state)) {
+        let f = split(state[j], "|")
+        if (f[0] == name) { push(out, rec); replaced = 1 } else { push(out, state[j]) }
+        j = j + 1
+    }
+    if (replaced == 0) { push(out, rec) }
+    return out
+}
+
+func row_count(rows) {
+    if (rows == "EMPTY") { return 0 }
+    return len(split(rows, ";"))
+}
+
+func insert_row(state, name, values) {
+    let rec = find_table(state, name)
+    if (rec == "") { print("ERROR unknown table " + name); return state }
+    let f = split(rec, "|")
+    let colcount = len(split(f[1], ","))
+    let valcount = len(split(values, ","))
+    if (valcount != colcount) { print("ERROR column count mismatch"); return state }
+    let rows = f[2]
+    if (rows == "EMPTY") { rows = values } else { rows = rows + ";" + values }
+    return put_table(state, name, f[1], rows)
+}
+
+func select_all(state, name) {
+    let rec = find_table(state, name)
+    if (rec == "") { print("ERROR unknown table " + name); return }
+    let f = split(rec, "|")
+    print("SELECT " + name + " rows=" + str(row_count(f[2])))
+    if (f[2] != "EMPTY") {
+        let rows = split(f[2], ";")
+        let i = 0
+        while (i < len(rows)) {
+            print("ROW " + rows[i])
+            i = i + 1
+        }
+    }
+}
+
+func print_schema(state) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        print("SCHEMA " + f[0] + " cols=" + f[1] + " rows=" + str(row_count(f[2])))
+        i = i + 1
+    }
+    print("SCHEMA tables=" + str(len(state)))
+}
+
+func persist(path, lines) {
+    let out = ""
+    let i = 0
+    while (i < len(lines)) {
+        out = out + lines[i] + "\n"
+        i = i + 1
+    }
+    writeFile(path, out)
+}
+
+func main() {
+    let cmds = split(readFile("data/commands.dat"), "\n")
+    let state = split(readFile("data/state.dat"), "\n")
+    let report = ""
+    let i = 0
+    while (i < len(cmds)) {
+        let line = trim(cmds[i])
+        if (line != "") {
+            let f = split(line, "|")
+            let op = f[0]
+            if (op == "CREATE") {
+                state = put_table(state, f[1], f[2], "EMPTY")
+                let msg = "CREATE " + f[1] + " cols=" + f[2]
+                print(msg)
+                report = report + msg + "\n"
+            }
+            if (op == "INSERT") {
+                state = insert_row(state, f[1], f[2])
+                let msg = "INSERT " + f[1] + " values=" + f[2]
+                report = report + msg + "\n"
+                print(msg)
+            }
+            if (op == "SELECT") {
+                select_all(state, f[1])
+                report = report + "SELECT " + f[1] + "\n"
+            }
+            if (op == "COUNT") {
+                let rec = find_table(state, f[1])
+                if (rec == "") {
+                    print("ERROR unknown table " + f[1])
+                } else {
+                    let d = split(rec, "|")
+                    let n = row_count(d[2])
+                    print("COUNT " + f[1] + " n=" + str(n))
+                    report = report + "COUNT " + f[1] + " n=" + str(n) + "\n"
+                }
+            }
+            if (op == "SCHEMA") {
+                print_schema(state)
+                report = report + "SCHEMA\n"
+            }
+        }
+        i = i + 1
+    }
+    persist("data/state.dat", state)
+    persist("data/report.dat", split(report, "\n"))
+    print("DATABASE_STUDIO_OK tables=" + str(len(state)))
+}
