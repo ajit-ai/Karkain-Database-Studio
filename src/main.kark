@@ -6,6 +6,7 @@
 // no rows so every record keeps a non-empty third field. The command stream
 // is read from data/commands.dat; a report is written to data/report.dat.
 // Builtins only; relative paths only.
+import db_advanced
 
 func find_table(state, name) {
     let i = 0
@@ -130,4 +131,5 @@ func main() {
     persist("data/state.dat", state)
     persist("data/report.dat", split(report, "\n"))
     print("DATABASE_STUDIO_OK tables=" + str(len(state)))
+    db_advanced.r2_run()
 }

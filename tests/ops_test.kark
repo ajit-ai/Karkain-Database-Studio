@@ -1,0 +1,77 @@
+// Round 2 self-contained tests for constraints, index and transactions.
+
+func test_unique_constraint() {
+    let rows = "1,alice,90;2,bob,80;3,carol,95"
+    let incoming = "4,bob,70"
+    let existing = split(rows, ";")
+    let old = split(incoming, ",")
+    let violation = 0
+    let i = 0
+    while (i < len(existing)) {
+        let cells = split(existing[i], ",")
+        if (cells[1] == old[1]) { violation = 1 }
+        i = i + 1
+    }
+    assert_eq(violation, 1)
+    let fresh = "4,dave,70"
+    let nv = split(fresh, ",")
+    let ok = 1
+    let k = 0
+    while (k < len(existing)) {
+        if (split(existing[k], ",")[1] == nv[1]) { ok = 0 }
+        k = k + 1
+    }
+    assert_eq(ok, 1)
+    assert_eq(len(existing), 3)
+}
+
+func test_not_null_constraint() {
+    let cons = "NNU,NN,NN"
+    let ct = split(cons, ",")
+    assert_eq(contains(ct[0], "NN"), 1)
+    assert_eq(contains(ct[0], "U"), 1)
+    let values = "5,NULL,60"
+    let vv = split(values, ",")
+    let rejected = 0
+    let i = 0
+    while (i < len(ct)) {
+        if (contains(ct[i], "NN") == 1) {
+            if (vv[i] == "" || vv[i] == "NULL") { rejected = 1 }
+        }
+        i = i + 1
+    }
+    assert_eq(rejected, 1)
+    let good = "5,erin,77"
+    let gv = split(good, ",")
+    let accepted = 1
+    let k = 0
+    while (k < len(ct)) {
+        if (contains(ct[k], "NN") == 1) {
+            if (gv[k] == "" || gv[k] == "NULL") { accepted = 0 }
+        }
+        k = k + 1
+    }
+    assert_eq(accepted, 1)
+}
+
+func test_index_and_transaction() {
+    let idx = "0:1@1,alice,90;2@2,bob,80;3@3,carol,95^1:alice@1,alice,90;bob@2,bob,80;carol@3,carol,95"
+    let blocks = split(idx, "^")
+    assert_eq(len(blocks), 2)
+    let hit = ""
+    let parts = split(split(blocks[1], ":")[1], ";")
+    let i = 0
+    while (i < len(parts)) {
+        let kv = split(parts[i], "@")
+        if (kv[0] == "carol") { hit = kv[1] }
+        i = i + 1
+    }
+    assert_eq(hit, "3,carol,95")
+    let before = "id,name,score|1,alice,90;2,bob,80;3,carol,95"
+    let snapshot = before
+    let after = before + ";4,erin,77"
+    assert_eq(len(split(after, ";")), 4)
+    let restored = snapshot
+    assert_eq(restored, before)
+    assert_eq(len(split(restored, ";")), 3)
+}

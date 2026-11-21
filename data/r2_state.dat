@@ -1,0 +1,1 @@
+users|id,name,score|NNU,NNU,NN|1,alice,90;2,bob,80;3,carol,95|0:1@1,alice,90;2@2,bob,80;3@3,carol,95^1:alice@1,alice,90;bob@2,bob,80;carol@3,carol,95

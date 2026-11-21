@@ -1,0 +1,19 @@
+CREATE users cols=id,name,score cons=NNU,NNU,NN
+INSERT users values=1,alice,90
+INSERT users values=2,bob,80
+INSERT users values=3,carol,95
+INSERT users values=4,bob,70
+INSERT users values=5,NULL,60
+INSERT users values=6,dave,NULL
+SELECT users
+LOOKUP users name=carol
+LOOKUP users id=2
+INDEX users 0:1@1,alice,90;2@2,bob,80;3@3,carol,95^1:alice@1,alice,90;bob@2,bob,80;carol@3,carol,95
+BEGIN snapshot tables=1
+INSERT users values=7,erin,77
+SELECT users
+ROLLBACK tables=1
+SELECT users
+COMMIT tables=1
+COUNT users n=3
+SCHEMA

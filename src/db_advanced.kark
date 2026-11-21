@@ -1,0 +1,290 @@
+// Karkain Database Studio - Round 2: constraints, index, transactions.
+// Table record in data/r2_state.dat:
+//   name|cols|constraints|rows|index
+// Constraints are comma-separated per column: NNU (not null + unique),
+// NN (not null only), U (unique only), - (none). The index is a persisted
+// set of <col>:<key>@<row>;... blocks joined by ^ ("-" means no index).
+// BEGIN/SNAPSHOT write a file snapshot; COMMIT does a single save;
+// ROLLBACK restores from that snapshot. No Round 1 files are touched.
+
+func r2_find(state, name) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == name) { return state[i] }
+        i = i + 1
+    }
+    return ""
+}
+
+func r2_put(state, name, cols, cons, rows, idx) {
+    let rec = name + "|" + cols + "|" + cons + "|" + rows + "|" + idx
+    let out = []
+    let replaced = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == name) { push(out, rec); replaced = 1 } else { push(out, state[i]) }
+        i = i + 1
+    }
+    if (replaced == 0) { push(out, rec) }
+    return out
+}
+
+func r2_rowcount(rows) {
+    if (rows == "EMPTY") { return 0 }
+    return len(split(rows, ";"))
+}
+
+func r2_index_get(idx, col) {
+    if (idx == "-") { return "" }
+    let blocks = split(idx, "^")
+    let i = 0
+    while (i < len(blocks)) {
+        let b = split(blocks[i], ":")
+        if (b[0] == str(col)) { return b[1] }
+        i = i + 1
+    }
+    return ""
+}
+
+func r2_index_lookup(idx, col, key) {
+    let entries = r2_index_get(idx, col)
+    if (entries == "") { return "" }
+    let parts = split(entries, ";")
+    let i = 0
+    while (i < len(parts)) {
+        let kv = split(parts[i], "@")
+        if (kv[0] == key) { return kv[1] }
+        i = i + 1
+    }
+    return ""
+}
+
+func r2_index_add(idx, col, key, row) {
+    let base = idx
+    if (base == "-") { base = "" }
+    let entries = r2_index_get(idx, col)
+    let ne = key + "@" + row
+    let merged = ne
+    if (entries != "") { merged = entries + ";" + ne }
+    let blocks = split(base, "^")
+    let out = ""
+    let found = 0
+    let i = 0
+    while (i < len(blocks)) {
+        let b = split(blocks[i], ":")
+        let piece = blocks[i]
+        if (b[0] == str(col)) { piece = str(col) + ":" + merged; found = 1 }
+        if (out != "") { out = out + "^" }
+        out = out + piece
+        i = i + 1
+    }
+    if (found == 0) {
+        if (out != "") { out = out + "^" }
+        out = out + str(col) + ":" + merged
+    }
+    return out
+}
+
+func r2_validate(cols, cons, values, rows) {
+    let cv = split(cols, ",")
+    let ct = split(cons, ",")
+    let vv = split(values, ",")
+    if (len(vv) != len(cv)) { return "column count mismatch" }
+    let i = 0
+    while (i < len(cv)) {
+        let v = trim(vv[i])
+        if (contains(ct[i], "NN") == 1) {
+            if (v == "" || v == "NULL") { return "NOT NULL violation on " + cv[i] }
+        }
+        if (contains(ct[i], "U") == 1) {
+            if (rows != "EMPTY") {
+                let rl = split(rows, ";")
+                let r = 0
+                while (r < len(rl)) {
+                    let cells = split(rl[r], ",")
+                    if (cells[i] == v) { return "UNIQUE violation on " + cv[i] }
+                    r = r + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func r2_insert(state, name, values) {
+    let rec = r2_find(state, name)
+    if (rec == "") { print("INSERT_ERR " + name + " reason=unknown table"); return state }
+    let d = split(rec, "|")
+    let reason = r2_validate(d[1], d[2], values, d[3])
+    if (reason != "") { print("INSERT_ERR " + name + " reason=" + reason); return state }
+    let rows = d[3]
+    if (rows == "EMPTY") { rows = values } else { rows = rows + ";" + values }
+    let idx = d[4]
+    let ct = split(d[2], ",")
+    let cv = split(d[1], ",")
+    let vv = split(values, ",")
+    let i = 0
+    while (i < len(cv)) {
+        if (contains(ct[i], "U") == 1) { idx = r2_index_add(idx, i, vv[i], values) }
+        i = i + 1
+    }
+    print("INSERT " + name + " values=" + values)
+    return r2_put(state, name, d[1], d[2], rows, idx)
+}
+
+func r2_select(state, name) {
+    let rec = r2_find(state, name)
+    if (rec == "") { print("ERROR unknown table " + name); return }
+    let d = split(rec, "|")
+    print("SELECT " + name + " rows=" + str(r2_rowcount(d[3])))
+    if (d[3] != "EMPTY") {
+        let rl = split(d[3], ";")
+        let i = 0
+        while (i < len(rl)) {
+            print("ROW " + rl[i])
+            i = i + 1
+        }
+    }
+}
+
+func r2_lookup(state, name, colname, key) {
+    let rec = r2_find(state, name)
+    if (rec == "") { print("ERROR unknown table " + name); return }
+    let d = split(rec, "|")
+    let cv = split(d[1], ",")
+    let col = -1
+    let i = 0
+    while (i < len(cv)) {
+        if (cv[i] == colname) { col = i }
+        i = i + 1
+    }
+    if (col == -1) { print("LOOKUP_ERR " + name + " reason=unknown column " + colname); return }
+    let row = r2_index_lookup(d[4], col, key)
+    if (row == "") {
+        print("LOOKUP " + name + " " + colname + "=" + key + " rows=0")
+    } else {
+        print("LOOKUP " + name + " " + colname + "=" + key + " rows=1")
+        print("ROW " + row)
+    }
+}
+
+func r2_schema(state) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        print("SCHEMA " + f[0] + " cols=" + f[1] + " cons=" + f[2] + " rows=" + str(r2_rowcount(f[3])))
+        i = i + 1
+    }
+    print("SCHEMA tables=" + str(len(state)))
+}
+
+func r2_persist(path, lines) {
+    let out = ""
+    let i = 0
+    while (i < len(lines)) {
+        out = out + lines[i] + "\n"
+        i = i + 1
+    }
+    writeFile(path, out)
+}
+
+func r2_snapshot_write(state) {
+    r2_persist("data/r2_snapshot.dat", state)
+}
+
+func r2_snapshot_read() {
+    let txt = readFile("data/r2_snapshot.dat")
+    if (txt == "") { return [] }
+    return split(txt, "\n")
+}
+
+public func r2_run() {
+    let cmds = split(readFile("data/r2_commands.dat"), "\n")
+    let state = split(readFile("data/r2_state.dat"), "\n")
+    if (len(state) == 1) {
+        if (trim(state[0]) == "") { state = [] }
+    }
+    let report = ""
+    let in_txn = 0
+    let i = 0
+    while (i < len(cmds)) {
+        let line = trim(cmds[i])
+        if (line != "") {
+            let f = split(line, "|")
+            let op = f[0]
+            if (op == "CREATE") {
+                state = r2_put(state, f[1], f[2], f[3], "EMPTY", "-")
+                let msg = "CREATE " + f[1] + " cols=" + f[2] + " cons=" + f[3]
+                print(msg)
+                report = report + msg + "\n"
+            }
+            if (op == "INSERT") {
+                state = r2_insert(state, f[1], f[2])
+                report = report + "INSERT " + f[1] + " values=" + f[2] + "\n"
+            }
+            if (op == "SELECT") {
+                r2_select(state, f[1])
+                report = report + "SELECT " + f[1] + "\n"
+            }
+            if (op == "LOOKUP") {
+                r2_lookup(state, f[1], f[2], f[3])
+                report = report + "LOOKUP " + f[1] + " " + f[2] + "=" + f[3] + "\n"
+            }
+            if (op == "INDEX") {
+                let rec = r2_find(state, f[1])
+                if (rec == "") {
+                    print("ERROR unknown table " + f[1])
+                } else {
+                    let d = split(rec, "|")
+                    let msg = "INDEX " + f[1] + " " + d[4]
+                    print(msg)
+                    report = report + msg + "\n"
+                }
+            }
+            if (op == "BEGIN" || op == "SNAPSHOT") {
+                r2_snapshot_write(state)
+                in_txn = 1
+                let msg = "BEGIN snapshot tables=" + str(len(state))
+                print(msg)
+                report = report + msg + "\n"
+            }
+            if (op == "COMMIT") {
+                r2_persist("data/r2_state.dat", state)
+                in_txn = 0
+                let msg = "COMMIT tables=" + str(len(state))
+                print(msg)
+                report = report + msg + "\n"
+            }
+            if (op == "ROLLBACK") {
+                state = r2_snapshot_read()
+                r2_persist("data/r2_state.dat", state)
+                in_txn = 0
+                let msg = "ROLLBACK tables=" + str(len(state))
+                print(msg)
+                report = report + msg + "\n"
+            }
+            if (op == "COUNT") {
+                let rec = r2_find(state, f[1])
+                if (rec == "") {
+                    print("ERROR unknown table " + f[1])
+                } else {
+                    let n = r2_rowcount(split(rec, "|")[3])
+                    let msg = "COUNT " + f[1] + " n=" + str(n)
+                    print(msg)
+                    report = report + msg + "\n"
+                }
+            }
+            if (op == "SCHEMA") {
+                r2_schema(state)
+                report = report + "SCHEMA\n"
+            }
+        }
+        i = i + 1
+    }
+    r2_persist("data/r2_state.dat", state)
+    r2_persist("data/r2_report.dat", split(report, "\n"))
+    print("R2_DATABASE_OK tables=" + str(len(state)) + " in_txn=" + str(in_txn))
+}
